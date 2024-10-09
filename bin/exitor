@@ -1,10 +1,17 @@
 #!/usr/bin/env ruby
 # exitor
 
-# 20200704
-# 0.0.0
+# 20200712
+# 0.0.1
 
 # Description: A quick way to choose which country the tor exit node is in.
+
+# Changes:
+# 0/1
+# 1. ~ pid(): reversed the order of which process id to return.
+# 2, /restart_process()/kill_and_restart_process()/
+# 3. ~ kill_and_restart_process(): - if running_tor
+# 4. ~ main(): + if running_tor
 
 require 'FileUtils/which'
 require 'http.rb'
@@ -81,10 +88,10 @@ def tor_process_running?
 end
 
 def pid
-  if tor_dot_real_process_running?
-    ::Sys::ProcTable.ps.select{|p| p.comm == 'tor.real'}.first&.pid
-  elsif tor_process_running?
+  if tor_process_running?
     ::Sys::ProcTable.ps.select{|p| p.comm == 'tor'}.first&.pid
+  elsif tor_dot_real_process_running?
+    ::Sys::ProcTable.ps.select{|p| p.comm == 'tor.real'}.first&.pid
   end
 end
 
@@ -168,15 +175,13 @@ def path_to_tor
   end
 end
 
-def restart_process
-  if running_tor
-    Process.kill(9, pid) if pid
-    case running_tor
-    when 'tor'
-      exec(path_to_tor)
-    when 'tor.real'
-      # Don't restart tor.real because Tor Browser needs to do it or else Tor Browser will stop working for some reason.
-    end
+def kill_and_restart_process
+  Process.kill(9, pid) if pid
+  case running_tor
+  when 'tor'
+    exec(path_to_tor)
+  when 'tor.real'
+    # Don't restart tor.real because Tor Browser needs to do it or else Tor Browser will stop working for some reason.
   end
 end
 
@@ -190,7 +195,7 @@ def main
   else
     exit_through_country(country_to_exit_through)
   end
-  restart_process
+  kill_and_restart_process if running_tor
 end
 
 main
