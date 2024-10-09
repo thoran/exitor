@@ -1,0 +1,196 @@
+#!/usr/bin/env ruby
+# exitor
+
+# 20200704
+# 0.0.0
+
+# Description: A quick way to choose which country the tor exit node is in.
+
+require 'FileUtils/which'
+require 'http.rb'
+require 'sys/proctable'
+require 'SimpleCSV'
+
+def current_users_home_directory
+  ENV['HOME']
+end
+
+DEFAULT_COUNTRY_CODES_FILE_PATH = "#{current_users_home_directory}/data/country_codes.csv"
+
+def country_codes_file
+  @country_code_file ||= (
+    if File.exist?(DEFAULT_COUNTRY_CODES_FILE_PATH)
+      File.read(DEFAULT_COUNTRY_CODES_FILE_PATH)
+    else
+      response = HTTP.get('https://datahub.io/core/country-list/r/data.csv')
+      File.write(DEFAULT_COUNTRY_CODES_FILE_PATH, response.body)
+      response.body
+    end
+  )
+end
+
+def current_user
+  ENV['USER']
+end
+
+def find_country_by_code(candidate_country_code)
+  country_codes.detect{|country| country['Code'] == candidate_country_code.upcase}
+end
+
+def find_country_by_name(candidate_country_name)
+  country_codes.detect{|country| country['Name'] == candidate_country_name.upcase}
+end
+
+def country_codes
+  @country_codes ||= SimpleCSV.new(country_codes_file, headers: true).read
+end
+
+def torrc_file_path
+  if File.exist?("/usr/local/etc/tor/torrc") && tor_process_running?
+    '/usr/local/etc/tor/torrc'
+  elsif File.exist?("#{current_users_home_directory}/Library/Application\ Support/TorBrowser-Data/Tor/torrc") && tor_dot_real_process_running?
+    "#{current_users_home_directory}/Library/Application\ Support/TorBrowser-Data/Tor/torrc"
+  elsif tor_process_running?
+    '/usr/local/etc/tor/torrc'
+  elsif tor_dot_real_process_running?
+    "#{current_users_home_directory}/Library/Application\ Support/TorBrowser-Data/Tor/torrc"
+  else # Assume that we're using tor
+    '/usr/local/etc/tor/torrc'
+  end
+end
+
+def torrc_file_contents
+  File.read(torrc_file_path)
+end
+
+def tor_installed?
+  FileUtils.which('tor')
+end
+
+def tor_browser_installed?
+  File.exist?("/Users/#{current_user}/Applications/Tor\ Browser.app") ||
+    File.exist?("/Applications/Tor\ Browser.app")
+end
+
+def tor_dot_real_process_running?
+  !Sys::ProcTable.ps.select{|p| p.comm == 'tor.real'}.empty?
+end
+
+def tor_process_running?
+  !Sys::ProcTable.ps.select{|p| p.comm == 'tor'}.empty?
+end
+
+def pid
+  if tor_dot_real_process_running?
+    ::Sys::ProcTable.ps.select{|p| p.comm == 'tor.real'}.first&.pid
+  elsif tor_process_running?
+    ::Sys::ProcTable.ps.select{|p| p.comm == 'tor'}.first&.pid
+  end
+end
+
+def country_code_exist?(candidate_country_code)
+  !find_country_by_code(candidate_country_code).nil?
+end
+
+def country_name_exist?(candidate_country_name)
+  !find_country_by_name(candidate_country_name).nil?
+end
+
+def country_to_exit_through
+  ARGV[0]
+end
+
+def exit_through_country(candidate_country)
+  if country = find_country_by_code(candidate_country)
+    edit_exit_node_config(country['Code'])
+  elsif country = find_country_by_name(candidate_country)
+    edit_exit_node_config(country['Code'])
+  else
+    raise "#{candidate_country} was not found."
+  end
+end
+
+def edit_exit_node_config(new_country_code)
+  new_torrc_file_contents = ''
+  exit_nodes_line_altered = false
+  File.read(torrc_file_path).each_line do |line|
+    if line.match?('ExitNodes \{(..)\}')
+      exit_nodes_line_altered = true
+      new_torrc_file_contents << "ExitNodes {#{new_country_code}}\n"
+    else
+      new_torrc_file_contents << line
+    end
+  end
+  unless exit_nodes_line_altered
+    new_torrc_file_contents << "ExitNodes {#{new_country_code}}\n"
+  end
+  File.open(torrc_file_path, 'w+') do |f|
+    f.puts new_torrc_file_contents
+  end
+end
+
+def remove_exit_node_config
+  new_torrc_file_contents = ''
+  File.read(torrc_file_path).each_line do |line|
+    if !line.match?('ExitNodes \{(..)\}')
+      new_torrc_file_contents << line
+    end
+  end
+  File.open(torrc_file_path, 'w+') do |f|
+    f.puts new_torrc_file_contents
+  end
+end
+
+def running_tor
+  @running_tor ||= (
+    if tor_process_running?
+      'tor'
+    elsif tor_dot_real_process_running?
+      'tor.real'
+    else
+      nil
+    end
+  )
+end
+
+def path_to_tor
+  case running_tor
+  when 'tor'
+    FileUtils.which('tor')
+  when 'tor.real'
+    if File.exist?("/Users/#{current_user}/Applications/Tor\ Browser.app")
+      "/Users/#{current_user}/Applications/Tor\ Browser.app/Contents/MacOS/Tor/tor.real"
+    elsif File.exist?("/Users/Applications/Tor\ Browser.app")
+      "/Applications/Tor\ Browser.app/Contents/MacOS/Tor/tor.real"
+    else
+      nil
+    end
+  end
+end
+
+def restart_process
+  if running_tor
+    Process.kill(9, pid) if pid
+    case running_tor
+    when 'tor'
+      exec(path_to_tor)
+    when 'tor.real'
+      # Don't restart tor.real because Tor Browser needs to do it or else Tor Browser will stop working for some reason.
+    end
+  end
+end
+
+def main
+  running_tor
+  unless File.exist?(torrc_file_path)
+    FileUtils.touch(torrc_file_path)
+  end
+  if country_to_exit_through == 'any'
+    remove_exit_node_config
+  else
+    exit_through_country(country_to_exit_through)
+  end
+  restart_process
+end
+
+main
