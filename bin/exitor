@@ -2,7 +2,7 @@
 # exitor
 
 # 20241013
-# 0.2.0
+# 0.2.1
 
 # Description: A quick way to choose which country the tor exit node is in.
 
@@ -21,11 +21,12 @@
 #   ii. Make reference to kill_tor() and tor_running?().
 #   iii. Check for whether a country_to_exit_through was supplied at all rather waiting till it can't be found in exit_through_country().
 # 10. ~ torrc_file_path(): /tor_process_running?()/tor_running?()/
+# 0/1 (Remove no longer used require.)
+# 11. - require 'FileUtils/which'
 
 # Todo:
 # 1. Do better checks for whether a torrc file is where we think it might be.
 
-require 'FileUtils/which'
 require 'http.rb'
 require 'sys/proctable'
 require 'SimpleCSV'
