@@ -1,19 +1,29 @@
 #!/usr/bin/env ruby
 # exitor
 
-# 20240919
-# 0.1.0
+# 20241013
+# 0.2.0
 
 # Description: A quick way to choose which country the tor exit node is in.
 
-# Changes since 0.0:
-# -/0 (Remove reference to tor.real, since TorBrowser now also seems to start a process `tor`.)
-# 1. - tor_dot_real_process_running?()
-# 2. ~ torrc_file_path(): - reference to tor_dot_real_process_running?
-# 3. ~ pid(): - reference to tor_dot_real_process_running?
-# 4. ~ running_tor(): - reference to tor_dot_real_process_running?
-# 5. ~ path_to_tor(): - reference to tor_dot_real_process_running?
-# 6. ~ kill_and_restart_process(): - reference to tor_dot_real_process_running?
+# Changes since 0.1:
+# -/0 (Don't attempt to restart tor. TorBrowser needs to start it after it has been killed.)
+# 1. - running_tor(): Just use tor_process_running?().
+# 2. - path_to_tor(): Not necessary if no longe restarting the process.
+# 3. - tor_installed?()
+# 4. - tor_browser_installed?()
+# 5. - torrc_file_contents(): Not being used.
+# 6. ~ torrc_file_path(): Further simplified after the removal of reference to tor.real in the previous minor revision.
+# 7. /kill_and_restart_process()/kill_tor()/
+# 8. /tor_process_running?()/tor_running?()/: It wouldn't be a process if wasn't around. We're not presently concerned about whether it is stopped!
+# 9. ~ main():
+#   i. Remove reference to running_tor()
+#   ii. Make reference to kill_tor() and tor_running?().
+#   iii. Check for whether a country_to_exit_through was supplied at all rather waiting till it can't be found in exit_through_country().
+# 10. ~ torrc_file_path(): /tor_process_running?()/tor_running?()/
+
+# Todo:
+# 1. Do better checks for whether a torrc file is where we think it might be.
 
 require 'FileUtils/which'
 require 'http.rb'
@@ -55,13 +65,9 @@ def country_codes
 end
 
 def torrc_file_path
-  if File.exist?("/usr/local/etc/tor/torrc") && tor_process_running?
-    '/usr/local/etc/tor/torrc'
-  elsif File.exist?("#{current_users_home_directory}/Library/Application\ Support/TorBrowser-Data/Tor/torrc") && tor_process_running?
+  if File.exist?("#{current_users_home_directory}/Library/Application\ Support/TorBrowser-Data/Tor/torrc") && tor_running?
     "#{current_users_home_directory}/Library/Application\ Support/TorBrowser-Data/Tor/torrc"
-  elsif tor_process_running?
-    '/usr/local/etc/tor/torrc'
-  else # Assume that we're using tor
+  else # assume that we're using cli tor...
     '/usr/local/etc/tor/torrc'
   end
 end
@@ -70,16 +76,7 @@ def torrc_file_contents
   File.read(torrc_file_path)
 end
 
-def tor_installed?
-  FileUtils.which('tor')
-end
-
-def tor_browser_installed?
-  File.exist?("/Users/#{current_user}/Applications/Tor\ Browser.app") ||
-    File.exist?("/Applications/Tor\ Browser.app")
-end
-
-def tor_process_running?
+def tor_running?
   !Sys::ProcTable.ps.select{|p| p.comm == 'tor'}.empty?
 end
 
@@ -140,36 +137,22 @@ def remove_exit_node_config
   end
 end
 
-def running_tor
-  @running_tor ||= (
-    if tor_process_running?
-      'tor'
-    else
-      nil
-    end
-  )
-end
-
-def path_to_tor
-  FileUtils.which('tor')
-end
-
-def kill_and_restart_process
+def kill_tor
   Process.kill(9, pid) if pid
-  exec(path_to_tor)
 end
 
 def main
-  running_tor
   unless File.exist?(torrc_file_path)
     FileUtils.touch(torrc_file_path)
   end
-  if country_to_exit_through == 'any'
+  if country_to_exit_through.nil?
+    raise "Supply a country name or code or 'any' to remove exit node config."
+  elsif country_to_exit_through == 'any'
     remove_exit_node_config
   else
     exit_through_country(country_to_exit_through)
   end
-  kill_and_restart_process if running_tor
+  kill_tor if tor_running?
 end
 
 main
