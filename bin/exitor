@@ -1,8 +1,8 @@
 #!/usr/bin/env ruby
 # exitor
 
-# 20241013
-# 0.2.1
+# 20241201
+# 0.2.2
 
 # Description: A quick way to choose which country the tor exit node is in.
 
@@ -23,6 +23,9 @@
 # 10. ~ torrc_file_path(): /tor_process_running?()/tor_running?()/
 # 0/1 (Remove no longer used require.)
 # 11. - require 'FileUtils/which'
+# 1/2 (Detect full country names correctly.)
+# 12. + String#titlecase
+# 13. ~ find_country_by_name(): Use String#titlecase.
 
 # Todo:
 # 1. Do better checks for whether a torrc file is where we think it might be.
@@ -30,6 +33,12 @@
 require 'http.rb'
 require 'sys/proctable'
 require 'SimpleCSV'
+
+class String
+  def titlecase
+    self.split.map{|part| part.capitalize}.join(' ')
+  end
+end
 
 def current_users_home_directory
   ENV['HOME']
@@ -58,7 +67,7 @@ def find_country_by_code(candidate_country_code)
 end
 
 def find_country_by_name(candidate_country_name)
-  country_codes.detect{|country| country['Name'] == candidate_country_name.upcase}
+  country_codes.detect{|country| country['Name'] == candidate_country_name.titlecase}
 end
 
 def country_codes
